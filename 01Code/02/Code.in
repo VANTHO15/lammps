@@ -1,0 +1,87 @@
+# Init
+units metal
+dimension 3
+boundary  p p p
+atom_style atomic
+
+# Variable
+variable LatParam equal 3.61
+variable Material string Cu
+
+#######################################################################
+# Define ra 1 hộp và bên trong có các nguyên tử
+# Mạng ->Vùng->Hộp->Nguyên tử
+lattice fcc ${LatParam} # Tạo 1 mạng lưới
+# Tạo 1 vùng 
+region THONV block 0 10 0 10 0 10 # x từ 0->10, tương tụ cho y z
+# Tạo 1 hộp chưa cái vùng trên
+create_box 1 THONV
+
+# Đến đây đã có 1 hộp nhưng chưa có atom nào
+# Ta cần tạo 1 hướng cho mạng
+lattice fcc ${LatParam} orient x 1 0 0 orient y 0 1 0 orient z 0 0 1
+# Sau đó tạo ra các nguyên tử type = 1 và lấp đầy vào vùng THONV
+create_atoms 1 region THONV
+
+########################################################################
+# Các nguyên tử tương tác với nhau như nào
+# Thế năng nguyên tử (Interatomic Potential)
+pair_style meam
+pair_coeff * * library.meam ${Material} ${Material}.meam ${Material}
+
+# Property Computes ( yêu cầu LAMMPS tính toán 1 số giá trị đặc biệt )
+## Sử dụng loại phép tính là pe/atom để tính toán thế năng cho All các nguyên tử và lưu vào biến TheNang
+compute TheNang all pe/atom   
+## Tương tự như trên để tính ứng xuất                               
+compute UngXuat all stress/atom NULL
+
+########################################
+# Trong các phân tử, ở cấp độ động phân tử thì nhiệt độ chỉ là 1 dao động ngẫu nhiên trên mỗi nguyên tử
+# Vì vậy ta sẽ tạo ra dao động ngẫu nhiên
+# sau đó cho phân tử ở chố độ bình thường, sau đó sẽ làm biến dạng nó và tính toán độ biến dạng và ứng xuất
+
+# set timestep bắt đầu ở 0
+reset_timestep 0
+# Chọn step time, nguyên tử càng nhẹ thì step time cần càng nhỏ, vì dao động nhiệt sẽ ở tần số cao
+timestep 0.005
+
+# set temperature, nhiệt độ là vận tốc và sẽ là những dao động nên sẽ dùng hàm vẫn tốc
+# Tạo ra 1 vận tốc random và áp dụng cho tất cả các nguyên tử
+# Tạo vận tốc ở cường độ 300 Kenvin, và cung cấp 1 số ngẫu nhiên để random
+velocity all create 300 12345 
+
+# Tạo 1 bản fix có tên là 1, áp dụng cho all nguyên tử, npt là số lượng nguyên tử k đổi, áp xuất 
+# không đổi và nhiệt độ k đổi
+# Set nhiệt độ là lúc đầu 300 và khi kết thúc cũng 300
+# ISO là áp xuất theo mọi hướng và ban đầu băng 0, kết thúc cũng bằng 0
+# 5 drag 1: dùng để giảm rung động không mong muốn
+fix 1 all npt temp 300 300 0.5 iso 0 0 5 drag 1
+
+# Cho LAMMPS biết thông tin nào nó cần phải xuất ra cho ta
+     # Có 2 cách là in ra LOG và tạo file dump
+##### Cách 1
+# 2 câu lệnh dưới sẽ kêu LAMMPS in ra nội dung các cái dưới sau mỗi 400 bước thời gian
+thermo 400
+thermo_style custom step lx ly lz press pxx pyy pzz pe temp 
+##### Cách 2
+# Use custom dump for OVIO output
+# Cứ sau 250 steptime thì ghi và file Output_Cu.*.log
+# c_TheNang: thêm c phía trước để đề cập đến cái bên trên ta đã tính toán rồi
+dump 1 all custom 250 Output_Cu.*.log id x y z c_TheNang fx fy fz &
+     c_UngXuat[1] c_UngXuat[2] c_UngXuat[3] c_UngXuat[4] c_UngXuat[5] c_UngXuat[6]
+
+# run for 20 picoseconds
+# Run 4000 bước thời gian
+# Sau khi chạy xong thì un fix và un dump đi, để không áp dụng nó vô trong phần mô phỏng tiếp theo
+run 4000
+unfix  1
+undump  1
+
+# Lưu trữ chiều dài ô lại (Cell length) để sau này tính toán độ biến dạng
+# variable  tmp equal "lx"
+# variable  L0 equal ${tmp}
+# print "Initial Length, L0: ${L0}"
+
+######################
+# Simulink done
+print "All done"

@@ -1,0 +1,24 @@
+dimension 3
+boundary p p p
+units metal
+atom_style atomic 
+
+# Structure define
+region CELL block -12 12 -12 12 -12 12 units box
+create_box 1 CELL
+lattice sc 3.4
+create_atoms 1 region CELL
+
+# Simulink setting
+mass 1 39.95
+pair_style lj/cut 8.5
+pair_coeff * * 0.0104 3.4
+velocity  all create 300 654488 mom yes rot yes dist uniform 
+fix 1 all nve
+timestep 0.001 #1 fs -- 0.001 fs 
+thermo 100
+thermo_style custom step temp etotal ke 
+dump 1 all xyz 100 Dump.xyz
+
+# Run a simulink
+run 10000
