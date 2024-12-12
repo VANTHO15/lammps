@@ -1,0 +1,108 @@
+log stress.out
+units metal
+boundary p p p
+atom_style atomic
+
+#3 variables
+variable        temperature equal    300.0
+variable        tstep equal 0.001
+#variable high equal 40
+variable        strainmax equal 0.2
+variable        srate equal 1.e9/1.e12
+variable        tmp equal bound(all,zmax)-bound(all,zmin)
+variable        lenz equal ${tmp}
+variable        vtension equal sqrt(${srate}*${srate})*${lenz}
+variable        nstep equal ${strainmax}*${lenz}/${vtension}/${tstep}
+
+
+region box block 0 70 0 80 0 100
+lattice hcp 3.232
+create_box 1 box
+create_atoms 1 box
+
+pair_style eam/fs
+pair_coeff * *  Zr_mm.eam.fs Zr
+neighbor 2.0 bin
+neigh_modify delay 10 check yes
+mass * 91.225
+reset_timestep 0
+
+dump 16 all custom 1000 Vindent_Tra.*.dat id type x y z
+
+####fix 1 all box/relax aniso 0.0 vmax 0.001
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz
+min_style cg
+minimize 1e-25 1e-25 5000 10000
+####unfix 1
+######################################
+# EQUILIBRATION
+reset_timestep 0
+timestep ${tstep}
+velocity all create 500 12345 mom yes rot no
+fix 1 all npt temp 500 500 1 iso 0 0 1 drag 1
+# Set thermo output
+thermo 1000
+thermo_style custom step lx ly lz press pxx pyy pzz pe temp
+# Run for at least 10 picosecond (assuming 1 fs timestep)
+run 100000
+unfix 1
+# Store final cell length for strain calculations
+
+#compute         peratom mobile pe/atom
+compute		p all stress/atom NULL 
+variable  press3 atom (3*((c_p[4])^2+(c_p[5])^2+(c_p[6])^2)+0.5*(((c_p[1])-(c_p[2]))^2+((c_p[2])-(c_p[3]))^2+((c_p[1])-(c_p[3]))^2))^(1/2)
+
+variable stress1 atom "c_p[1]/10000"
+variable stress2 atom "c_p[2]/10000"
+variable stress3 atom "c_p[3]/10000"
+variable stress4 atom "c_p[4]/10000"
+variable stress5 atom "c_p[5]/10000"
+variable stress6 atom "c_p[6]/10000"
+compute stressx1 all reduce ave v_stress1
+compute stressy1 all reduce ave v_stress2
+compute stressz1 all reduce ave v_stress3
+compute stressx2 all reduce ave v_stress4
+compute stressy2 all reduce ave v_stress5
+compute stressz2 all reduce ave v_stress6
+variable  mises  equal  sqrt(3*(c_stressx2^2+c_stressy2^2+c_stressz2^2)+0.5*((c_stressx1-c_stressy1)^2+(c_stressy1-c_stressz1)^2+(c_stressx1-c_stressz1)^2))
+
+compute		55 all ke/atom
+compute		58 all pe/atom
+
+
+variable tmp equal "lz"
+variable L0 equal ${tmp}
+print "Initial Length, L0: ${L0}"
+######################################
+# DEFORMATION
+reset_timestep 0
+timestep        ${tstep}
+#dump 1 all custom 100 300.dump id type x y z
+dump 10 all custom 200 dump.compression id type x y z  fx fy fz c_55   c_58  v_press3  c_p[1] c_p[2] c_p[3] c_p[4] c_p[5]  c_p[6]
+
+dump_modify 1 every 1000
+fix 1 all npt temp 500 500 1 x 0 0 1 y 0 0 1 drag 1
+#variable srate equal 1.0e9
+#variable srate1 equal "v_srate / 1.0e12"
+fix 2 all deform 1 z erate ${srate} units box remap x
+# Output strain and stress info to file
+# for units metal, pressure is in [bars] = 100 [kPa] = 1/10000 [GPa]
+# p2, p3, p4 are in GPa
+variable strain equal "(lz - v_L0)/v_L0"
+variable p1 equal "v_strain"
+variable p2 equal "-pxx/10000"
+variable p3 equal "-pyy/10000"
+variable p4 equal "-pzz/10000"
+
+compute stressZ mobile reduce sum c_p[3]  		#thay doi theo phuong keo
+variable stressZ equal (c_stressZ/vol/10000) 	#thay doi theo phuong keo
+
+# Display thermo
+thermo 1000
+thermo_style custom step temp v_strain  v_p2 v_p3 v_p4  v_mises ke pe press vol 
+fix okdata all print 100 "${strain} ${stressZ}" file ok.300.data screen no
+
+run ${nstep}
+# SIMULATION DONE
+print "All done"
